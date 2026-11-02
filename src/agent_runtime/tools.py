@@ -1,3 +1,6 @@
+import inspect
+
+
 class Tool:
     def __init__(self, name: str, description: str, parameters: dict, func: callable):
         self.name = name
@@ -5,10 +8,25 @@ class Tool:
         self.parameters = parameters
         self.func = func
 
+class Parameter:
+    def __init__(self, name: str, param_type: type, default=None, required=True):
+        self.name = name
+        self.param_type = None if param_type is inspect.Parameter.empty else param_type
+        self.default = default
+        self.required = required
+
+def build_parameters(params: dict) -> dict:
+    parameters = {}
+    for name, param in params.items():
+        parameters[name] = Parameter(name, param.annotation, param.default, param.default == inspect.Parameter.empty)
+    return parameters
+
 def tool(func: callable):
     func.name = func.__name__
     func.description = func.__doc__ or ""
-    func.parameters = func.__annotations__
+
+
+    func.parameters = build_parameters(inspect.signature(func).parameters)
 
     return func
 
@@ -17,7 +35,7 @@ class ToolRegistry:
         self.tools = {}
 
     def register_tool(self, func: callable):
-        if not func.name:
+        if not (hasattr(func, 'name') and hasattr(func, 'description') and hasattr(func, 'parameters')):
             raise ValueError("function not decorated with @tool")
         
         if func.name in self.tools:
