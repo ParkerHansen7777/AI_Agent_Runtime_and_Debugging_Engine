@@ -8,6 +8,29 @@ class Tool:
         self.parameters = parameters
         self.func = func
 
+    def validate_arguments(self, args: dict):
+
+        if not isinstance(args, dict):
+            raise TypeError("Arguments must be provided as a dictionary.")
+        
+        for param_name, param in self.parameters.items():
+            
+            if param.required and param_name not in args:
+                raise ValueError(f"Missing required argument: {param_name}")
+            
+            if param_name in args and isinstance(args[param_name], bool) and param.param_type is int:
+                raise TypeError(f"Argument '{param_name}' must be of type int")
+            
+            if param_name in args and param.param_type is not None and not isinstance(args[param_name], param.param_type):
+                raise TypeError(f"Argument '{param_name}' must be of type {param.param_type.__name__}")
+
+        for arg_name in args:
+            if arg_name not in self.parameters:
+                raise ValueError(f"Unexpected argument: {arg_name}")
+            
+
+            
+
 class Parameter:
     def __init__(self, name: str, param_type: type, default=None, required=True):
         self.name = name
