@@ -8,6 +8,32 @@ class Tool:
         self.parameters = parameters
         self.func = func
 
+    def to_schema(self):
+        
+        type_schema_mapping = {
+            int: "integer",
+            float: "number",
+            str: "string",
+            bool: "boolean",
+        }
+        
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    param.name: {
+                        **({"type": type_schema_mapping[param.param_type]} if param.param_type in type_schema_mapping else {})
+                    }
+                    for param in self.parameters.values()
+                },
+                "required": [param.name for param in self.parameters.values() if param.required],
+                "additionalProperties": False  
+            },
+             
+        }
+
     def validate_arguments(self, args: dict):
 
         if not isinstance(args, dict):
@@ -73,3 +99,6 @@ class ToolRegistry:
 
     def list_tools(self):
         return list(self.tools.keys())
+
+    def list_tool_schemas(self):
+        return [tool.to_schema() for tool in self.tools.values()]

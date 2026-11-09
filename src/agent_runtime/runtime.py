@@ -14,7 +14,7 @@ class Runtime:
 
         while iterations < self.max_iterations:
         
-            response = self.model.generate(self.agent.instructions, messages, self.agent.registry.list_tools())
+            response = self.model.generate(self.agent.instructions, messages, self.agent.registry.list_tool_schemas())
             iterations += 1
 
             if response.res_type == "final":
@@ -24,6 +24,8 @@ class Runtime:
             elif response.res_type == "tool_call":
                 tool = self.agent.registry.get_tool(response.tool_name)
                 messages.append({"role": "assistant", "content": None, "tool_call": {"tool_name": response.tool_name, "arguments": response.arguments}})
+
+                tool.validate_arguments(response.arguments)
                 result = tool.func(**response.arguments)
                 messages.append({"role": "tool", "name": response.tool_name, "content": result})
                 tool_calls.append({"tool_name": response.tool_name, "arguments": response.arguments, "result": result, "success": True})
