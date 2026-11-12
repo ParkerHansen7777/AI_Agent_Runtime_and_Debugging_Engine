@@ -1,8 +1,28 @@
 
 import pytest
+import json
+import math
 from datetime import datetime, timezone
 
 from agent_runtime.tracing import TraceEvent, ExecutionTrace
+
+
+@pytest.fixture
+def sample_timestamp():
+    return datetime(2026, 11, 12, 12, 0, 0, tzinfo=timezone.utc)
+
+
+@pytest.fixture
+def sample_event(sample_timestamp):
+    return TraceEvent(
+        event_id="event-123",
+        event_type="tool_execution",
+        timestamp=sample_timestamp,
+        iteration=2,
+        duration_ms=125.5,
+        status="success",
+        event_details={"tool_name": "calculator", "result": 42}
+    )
 
 
 @pytest.fixture
@@ -299,3 +319,208 @@ def test_record_event_rejects_failed_trace():
     with pytest.raises(RuntimeError):
         trace.record_event("model_call")
 
+def test_trace_event_to_dict_serializes_all_fields(sample_event, sample_timestamp):
+    result = sample_event.to_dict()
+
+    assert result == {
+        "event_id": "event-123",
+        "event_type": "tool_execution",
+        "timestamp": sample_timestamp.isoformat(),
+        "iteration": 2,
+        "duration_ms": 125.5,
+        "status": "success",
+        "event_details": {
+            "tool_name": "calculator",
+            "result": 42
+        }
+    }
+
+
+def test_trace_event_to_dict_preserves_none_values(sample_timestamp):
+    event = TraceEvent(
+        event_id="event-123",
+        event_type="model_call",
+        timestamp=sample_timestamp
+    )
+
+    result = event.to_dict()
+
+    assert result["iteration"] is None
+    assert result["duration_ms"] is None
+
+
+def test_trace_event_serializes_nested_values(sample_timestamp):
+    nested_datetime = datetime(2026, 11, 12, tzinfo=timezone.utc)
+
+    event = TraceEvent(
+        event_id="event-123",
+        event_type="test",
+        timestamp=sample_timestamp,
+        event_details={
+            "nested": {
+                "items": [1, 2, {"timestamp": nested_datetime}]
+            }
+        }
+    )
+
+    result = event.to_dict()
+
+    assert result["event_details"]["nested"]["items"][2]["timestamp"] == nested_datetime.isoformat()
+
+
+def test_trace_event_rejects_unsupported_values(sample_timestamp):
+    event = TraceEvent(
+        event_id="event-123",
+        event_type="test",
+        timestamp=sample_timestamp,
+        event_details={"invalid": object()}
+    )
+
+    with pytest.raises(TypeError):
+        event.to_dict()
+
+
+def test_trace_event_rejects_non_string_dictionary_keys(sample_timestamp):
+    event = TraceEvent(
+        event_id="event-123",
+        event_type="test",
+        timestamp=sample_timestamp,
+        event_details={123: "invalid"}
+    )
+
+    with pytest.raises(TypeError):
+        event.to_dict()
+
+
+@pytest.mark.parametrize("invalid_float", [float("nan"), float("inf"), float("-inf")])
+def test_trace_event_rejects_non_finite_floats(sample_timestamp, invalid_float):
+    event = TraceEvent(
+        event_id="event-123",
+        event_type="test",
+        timestamp=sample_timestamp,
+        event_details={"value": invalid_float}
+    )
+
+    with pytest.raises(ValueError):
+        event.to_dict()
+
+
+def test_trace_event_rejects_non_finite_duration(sample_timestamp):
+    event = TraceEvent(
+        event_id="event-123",
+        event_type="test",
+        timestamp=sample_timestamp,
+        duration_ms=float("nan")
+    )
+
+    with pytest.raises(ValueError):
+        event.to_dict()
+
+
+def test_trace_event_to_dict_does_not_modify_original(sample_event):
+    original_details = {
+        "tool_name": "calculator",
+        "result": 42
+    }
+
+    sample_event.to_dict()
+
+    assert sample_event.event_details == original_details
+    assert isinstance(sample_event.timestamp, datetime)
+
+def test_execution_trace_to_dict_serializes_metadata(sample_timestamp):
+    trace = ExecutionTrace(
+        run_id="run-123",
+        started_at=sample_timestamp
+    )
+
+    result = trace.to_dict()
+
+    assert result["schema_version"] == 1
+    assert result["run_id"] == "run-123"
+    assert result["started_at"] == sample_timestamp.isoformat()
+    assert result["completed_at"] is None
+    assert result["status"] == "running"
+    assert result["events"] == []
+
+
+def test_execution_trace_serializes_events_in_order(sample_timestamp):
+    event1 = TraceEvent(
+        "event-1", "run_started", sample_timestamp
+    )
+
+    event2 = TraceEvent(
+        "event-2", "model_call", sample_timestamp
+    )
+
+    trace = ExecutionTrace(
+        "run-123",
+        sample_timestamp,
+        events=[event1, event2]
+    )
+
+    result = trace.to_dict()
+
+    assert len(result["events"]) == 2
+    assert result["events"][0]["event_id"] == "event-1"
+    assert result["events"][1]["event_id"] == "event-2"
+
+
+def test_execution_trace_serializes_completed_trace(sample_timestamp):
+    trace = ExecutionTrace("run-123", sample_timestamp)
+
+    trace.finish("completed")
+
+    result = trace.to_dict()
+
+    assert result["status"] == "completed"
+    assert result["completed_at"] is not None
+    assert isinstance(result["completed_at"], str)
+
+
+def test_execution_trace_to_dict_does_not_modify_original(sample_timestamp):
+    event = TraceEvent(
+        "event-1",
+        "run_started",
+        sample_timestamp,
+        event_details={"value": 42}
+    )
+
+    trace = ExecutionTrace(
+        "run-123",
+        sample_timestamp,
+        events=[event]
+    )
+
+    trace.to_dict()
+
+    assert isinstance(trace.started_at, datetime)
+    assert isinstance(event.timestamp, datetime)
+    assert trace.events[0] is event
+    assert event.event_details == {"value": 42}
+
+
+def test_execution_trace_to_dict_is_json_serializable(sample_timestamp):
+    event = TraceEvent(
+        "event-1",
+        "tool_execution",
+        sample_timestamp,
+        event_details={"result": [1, 2, 3]}
+    )
+
+    trace = ExecutionTrace(
+        "run-123",
+        sample_timestamp,
+        events=[event]
+    )
+
+    result = trace.to_dict()
+
+    serialized_json = json.dumps(
+        result,
+        allow_nan=False,
+        indent=2
+    )
+
+    assert isinstance(serialized_json, str)
+    assert json.loads(serialized_json) == result
