@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-
+import uuid
 
 class TraceEvent:
 
@@ -46,5 +46,12 @@ class ExecutionTrace:
 
         self.status = final_status
         self.completed_at = datetime.now(timezone.utc)
+
+    def record_event(self, event_type: str, iteration: int | None = None, duration_ms: float | None = None, status: str = "info", event_details: dict | None = None):
+        event_id = str(uuid.uuid4())
+        timestamp = datetime.now(timezone.utc)
+
+        event = TraceEvent(event_id, event_type, timestamp, iteration, duration_ms, status, event_details)
+        self.add_event(event)
+        return event
         
-            

@@ -203,3 +203,99 @@ def test_finish_twice(final_status, execution_trace):
 
     with pytest.raises(RuntimeError):
         execution_trace.finish("completed")
+
+
+from datetime import datetime, timezone
+from agent_runtime.tracing import ExecutionTrace, TraceEvent
+
+
+def test_record_event_returns_trace_event():
+    trace = ExecutionTrace("run-1", datetime.now(timezone.utc))
+
+    event = trace.record_event("model_call")
+
+    assert isinstance(event, TraceEvent)
+
+
+def test_record_event_generates_string_event_id():
+    trace = ExecutionTrace("run-1", datetime.now(timezone.utc))
+
+    event = trace.record_event("model_call")
+
+    assert isinstance(event.event_id, str)
+    assert len(event.event_id) > 0
+
+
+def test_record_event_generates_unique_ids():
+    trace = ExecutionTrace("run-1", datetime.now(timezone.utc))
+
+    event1 = trace.record_event("model_call")
+    event2 = trace.record_event("tool_execution")
+
+    assert event1.event_id != event2.event_id
+
+
+def test_record_event_generates_utc_timestamp():
+    trace = ExecutionTrace("run-1", datetime.now(timezone.utc))
+
+    event = trace.record_event("model_call")
+
+    assert isinstance(event.timestamp, datetime)
+    assert event.timestamp.tzinfo is not None
+    assert event.timestamp.utcoffset().total_seconds() == 0
+
+
+def test_record_event_adds_event_to_trace():
+    trace = ExecutionTrace("run-1", datetime.now(timezone.utc))
+
+    event = trace.record_event("model_call")
+
+    assert event in trace.events
+    assert len(trace.events) == 1
+
+
+def test_record_event_stores_provided_arguments():
+    trace = ExecutionTrace("run-1", datetime.now(timezone.utc))
+    details = {"model": "fake-model", "response_type": "tool_call"}
+
+    event = trace.record_event(
+        event_type="model_call",
+        iteration=2,
+        duration_ms=125.5,
+        status="success",
+        event_details=details
+    )
+
+    assert event.event_type == "model_call"
+    assert event.iteration == 2
+    assert event.duration_ms == 125.5
+    assert event.status == "success"
+    assert event.event_details == details
+
+
+def test_record_event_uses_default_values():
+    trace = ExecutionTrace("run-1", datetime.now(timezone.utc))
+
+    event = trace.record_event("run_started")
+
+    assert event.iteration is None
+    assert event.duration_ms is None
+    assert event.status == "info"
+    assert event.event_details == {}
+
+
+def test_record_event_rejects_completed_trace():
+    trace = ExecutionTrace("run-1", datetime.now(timezone.utc))
+    trace.finish("completed")
+
+    with pytest.raises(RuntimeError):
+        trace.record_event("model_call")
+
+
+def test_record_event_rejects_failed_trace():
+    trace = ExecutionTrace("run-1", datetime.now(timezone.utc))
+    trace.finish("failed")
+
+    with pytest.raises(RuntimeError):
+        trace.record_event("model_call")
+
