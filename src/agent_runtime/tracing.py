@@ -34,6 +34,70 @@ def _serialize_value(value):
     
     raise TypeError("Invalid value type cannot be serialized")
 
+def _deserialize_value(value):
+
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, (int, str, type(None))):
+        return value
+
+    if isinstance(value, float):
+
+        if not math.isfinite(value):
+            raise ValueError("float must be finite")
+
+        return value
+
+    if isinstance(value, dict):
+        deserialized = {}
+        for key, item in value.items():
+
+            if not isinstance(key, str):
+                raise TypeError("dictionary key must be a string")
+
+            deserialized[key] = _deserialize_value(item)
+
+        return deserialized
+            
+
+    if isinstance(value, list):
+
+        return [_deserialize_value(item) for item in value]
+
+    raise TypeError("unsupported value type")
+
+    
+
+def _validate_string(value, field_name):
+    if not isinstance(value, str):
+        raise TypeError(f"{field_name} value should be a string")
+
+def _validate_optional_integer(value, field_name):
+    if isinstance(value, bool):
+        raise TypeError(f"{field_name} cannot be a bool")
+    
+    if not isinstance(value, (int, type(None))):
+        raise TypeError(f"{field_name} optional value must be an integer")
+
+def _validate_optional_number(value, field_name):
+    if isinstance(value, bool):
+        raise TypeError(f"{field_name} cannot be a bool")
+    
+    if not isinstance(value, (int, float, type(None))):
+        raise TypeError(f"{field_name} optional value must be an integer or float")
+
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("float value must be finite")
+
+def _deserialize_datetime(value):
+
+    _validate_string(value, "timestamp")    
+    
+    return datetime.fromisoformat(value)
+    
+
 class TraceEvent:
 
     def __init__(self, event_id: str, event_type: str, timestamp: datetime, iteration: int | None = None, duration_ms: float | None = None, status: str = "info", event_details: dict | None = None):
@@ -58,7 +122,35 @@ class TraceEvent:
             "event_details": _serialize_value(self.event_details)
         }
 
+    @classmethod
+    def from_dict(cls, data):
 
+        if not isinstance(data, dict):
+            raise TypeError("data is not a dictionary")
+
+        if set(("event_id", "event_type", "timestamp", "iteration", "duration_ms", "status", "event_details")) != set(data.keys()):
+            raise ValueError("data is missing entries or contains unexpected entries")
+
+        _validate_string(data["event_id"], "event_id")
+
+        _validate_string(data["event_type"], "event_type")
+
+        _validate_optional_integer(data["iteration"], "iteration")
+        
+        _validate_optional_number(data["duration_ms"], "duration_ms")
+        
+        _validate_string(data["status"], "status")
+
+        timestamp = _deserialize_datetime(data["timestamp"])
+
+        if not isinstance(data["event_details"], dict):
+            raise TypeError("event_details must be a dictionary")
+        
+        event_details = _deserialize_value(data["event_details"])
+       
+        return cls(data["event_id"], data["event_type"], timestamp, data["iteration"], data["duration_ms"], data["status"], event_details)
+
+        
 class ExecutionTrace:
 
     def __init__(self, run_id: str, started_at: datetime, events: list[TraceEvent] | None = None):
