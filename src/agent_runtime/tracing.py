@@ -201,4 +201,59 @@ class ExecutionTrace:
             "status": _serialize_value(self.status),
             "events": [event.to_dict() for event in self.events]
         }
+
+    @classmethod
+    def from_dict(cls, data):
+
+        version = 1
+        
+        if not isinstance(data, dict):
+            raise TypeError("data must be a dictionary")
+
+        if set(("schema_version", "run_id", "started_at", "completed_at", "status", "events")) != data.keys():
+            raise ValueError("data is missing entries or contains unexpected entries")
+
+        if isinstance(data["schema_version"], bool):
+            raise TypeError("schema_version must be an integer")
+
+        if not isinstance(data["schema_version"], int):
+            raise TypeError("schema_version must be an integer")
+        
+        if data["schema_version"] != version:
+            raise ValueError(f"schema_version must be equal to {version}")
+
+        _validate_string(data["run_id"], "run_id")
+        start_time = _deserialize_datetime(data["started_at"])
+        
+        complete_time = _deserialize_datetime(data["completed_at"]) if data["completed_at"] != None else None
+        
+        _validate_string(data["status"], "status")
+
+        if data["status"] not in ("running", "completed", "failed"):
+            raise ValueError("invalid status, must be either running, completed, or failed")
+        
+        if data["status"] == "running":
+
+            if complete_time != None:
+                raise ValueError("completed_at must be none if status is running")
+
+        if data["status"] in ("completed", "failed"):
+
+            if complete_time == None:
+                raise ValueError("statuses failed or completed must have a vaild datetime for completed_at")
+
+        if not isinstance(data["events"], list):
+            raise TypeError("events must be a list")
+
+        events = [TraceEvent.from_dict(event) for event in data["events"]]
+
+        instance = cls(data["run_id"], start_time, events)
+        instance.status = data["status"]
+        instance.completed_at = complete_time
+
+        return instance
+
+
+
+        
         
